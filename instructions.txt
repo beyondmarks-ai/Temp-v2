@@ -1,0 +1,80 @@
+Temptations — how the app is built and what it connects to
+============================================================
+
+1. What this project is
+-----------------------
+  • Native Android application written in Kotlin using Jetpack Compose and Material 3.
+  • Single Gradle module: `:app` (see settings.gradle.kts). Application ID: org.example.temptations.
+  • No custom backend server in this repo: authentication talks to Auth0’s hosted APIs, and chat talks to GetStream’s cloud over the public internet (HTTPS).
+
+2. How it is built
+------------------
+  • Build system: Gradle with Kotlin DSL (build.gradle.kts, app/build.gradle.kts).
+  • Android Gradle Plugin: 8.7.3; Kotlin: 1.9.25; Java/Kotlin JVM target: 17.
+  • SDK levels: compileSdk 35, targetSdk 35, minSdk 26.
+  • Compose: enabled via buildFeatures { compose = true }; Compose BOM 2024.02.02; compiler extension 1.5.15.
+  • Repositories (settings.gradle.kts): Google Maven, Maven Central; plugin resolution uses gradlePluginPortal.
+
+  Typical local build:
+    • Open the project folder in Android Studio, let Gradle sync, then Run the `app` configuration; or
+    • From a terminal in the project root: .\gradlew.bat assembleDebug (Windows) or ./gradlew assembleDebug.
+
+  Release builds use the same module; ProGuard is wired but minification is off in release as currently configured.
+
+3. Main libraries (dependencies)
+--------------------------------
+  • UI: androidx.compose (UI, Material3, tooling), androidx.activity:activity-compose, lifecycle-runtime-compose.
+  • Auth: com.auth0.android:auth0 (Authentication API client for passwordless SMS).
+  • Chat: io.getstream:stream-chat-android-compose (channels/messages UI plus Stream Chat client).
+
+4. Configuration and secrets (how values reach the app)
+-------------------------------------------------------
+  The app module reads `secrets.properties` in the **repo root** if that file exists; otherwise it falls back to Gradle project properties, then **environment variables**, then defaults (see mergedProperty in app/build.gradle.kts).
+
+  You can also set non-secret defaults in `gradle.properties` at the repo root (AUTH0_DOMAIN, AUTH0_SCHEME, STREAM_API_KEY, STREAM_USER_*). Real secrets should live in `secrets.properties` (gitignored) — copy from `secrets.properties.example`.
+
+  Injected at build time into the Android `defaultConfig` as `resValue` string resources (so Kotlin reads them via R.string):
+    • stream_api_key, stream_user_id, stream_user_name, stream_user_token
+    • com_auth0_domain, com_auth0_scheme
+
+  Auth0 **Client ID** is not in Gradle: it is defined in app/src/main/res/values/strings.xml as `com_auth0_client_id`. Replace this with the Client ID of your Auth0 **Native** application if you use your own tenant.
+
+  Manifest placeholders `auth0Domain` and `auth0Scheme` are set from the same AUTH0_* sources for any SDK manifest merging that expects them.
+
+5. What the app connects to (external services)
+-----------------------------------------------
+
+  A) Auth0 (https://auth0.com — your tenant’s domain, e.g. your-tenant.auth0.com)
+     • Used for **passwordless SMS**: send OTP via `AuthenticationAPIClient.passwordlessWithSMS`, then exchange the code with `loginWithPhoneNumber` using the `sms` connection (see MainActivity.kt).
+     • The SDK is initialized with `Auth0.getInstance(context)`, which uses `com_auth0_domain`, `com_auth0_scheme`, and `com_auth0_client_id` from resources.
+     • You must enable the Passwordless **SMS** connection and configure the native app in the Auth0 Dashboard for this flow to succeed.
+
+  B) GetStream Chat (https://getstream.io — Stream’s chat API)
+     • The app builds a `ChatClient` with your **Stream API key** (from R.string.stream_api_key).
+     • It registers the Stream state plugin (background sync, presence) and connects a user with `client.devToken(userId)` — a **development** token generated on the client.
+     • For that to work in development, Stream’s dashboard often needs **“Disable Auth Checks”** enabled on the app (development only), as noted in README.md. Production setups normally issue user tokens from a backend.
+
+     User identity for Stream:
+       • If the user signed in with Auth0, the Auth0 user `sub` (sanitized) becomes the Stream user id when possible.
+       • Otherwise the app uses a stored id from SharedPreferences (`temptations`) or generates a guest-like id; display name comes from the Auth0 profile or defaults.
+
+6. Runtime flow (how screens tie together)
+------------------------------------------
+  • MainActivity hosts Compose UI: either the landing screen (phone + SMS + Skip) or the “signed-in” experience.
+  • “Signed-in” includes **guest mode** (“Skip for now”) — no Auth0 session, but the dashboard still tries to open Stream chat if `STREAM_API_KEY` is set.
+  • After the dashboard is shown, `ensureStreamConnected()` runs once to connect Stream; `SignedInScreen` shows a placeholder until connected, then Stream’s `ChannelsScreen` / `MessagesScreen` inside `ChatTheme` (see ui/AuthScreens.kt).
+  • Creating a chat uses `ChatClient.instance().createChannel(...)` with type `messaging` and the current user plus another user id.
+
+7. Permissions and networking
+-----------------------------
+  • AndroidManifest.xml declares `INTERNET`; all Auth0 and Stream traffic uses the network.
+
+8. Files worth knowing
+----------------------
+  • app/build.gradle.kts — versions, Compose, secret merging, manifest placeholders, dependencies.
+  • app/src/main/java/org/example/temptations/MainActivity.kt — Auth0 SMS flow, Stream client lifecycle, user resolution.
+  • app/src/main/java/org/example/temptations/ui/AuthScreens.kt — Compose UI: login, channel list, messages, “start a chat” dialog.
+  • secrets.properties.example — template for local secrets.
+  • README.md — short setup notes aligned with the above.
+
+  Note: auth0.md in this repo is generic Auth0/Flutter quickstart text, not specific to this Android app.
