@@ -74,3 +74,10 @@ $env:REMOVE_BG_API_KEY='your_remove_bg_api_key'
 The script outputs a JSON file. Create a Firestore document in collection
 `memes` using that JSON. The sticker and audio URLs are sent together when a
 user picks the meme through `/meme`.
+
+<!-- beyond-marks-credit:start -->
+---
+### Built by Beyond Marks AI Academy
+
+Developed by **Rakesh Kumar** at [Beyond Marks AI Academy](https://beyondmarks.ai).
+<!-- beyond-marks-credit:end -->
